@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package pt;
+
+option go_package = "prototest/pt";
+
+message Data {
+  int32 id = 1;
+  string name = 2;
+  string address = 3;
+  string sex = 4;
+}
+
+message DataPackage {
+  repeated Data data_list = 1;
+  int32 total_count = 2;
+}
