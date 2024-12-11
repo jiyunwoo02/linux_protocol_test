@@ -1,18 +1,18 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"time"
-	"prototest/pt"
 )
 
-// Data 구조체 정의
-type Data struct {
+type vData struct {
 	Id      int    `json:"id"`
 	Name    string `json:"name"`
 	Address string `json:"address"`
@@ -23,47 +23,51 @@ func main() {
 	url := flag.String("rx_url", "", "Rx Server URL")
 	flag.Parse()
 
-	// Tx 서버 url이 설정되지 않은 경우 -> 오류 출력
 	if *url == "" {
 		fmt.Println("Error: Tx server url must be specified.")
 		os.Exit(1)
 	}
 
-	// 주기적으로 GET 요청 보내기
 	for {
 		sendGetRequest(*url)
-		time.Sleep(time.Duration(10 * time.Second))
+		time.Sleep(10 * time.Second)
 	}
 }
 
 func sendGetRequest(url string) {
-	resp, err := http.Get(url)
+	// 기본적으로 Go의 http 클라이언트는 자체 서명된 인증서 신뢰 X -> tls: bad certificate 오류 발생
+	tr := &http.Transport{
+		// If InsecureSkipVerify is true,
+		// crypto/tls accepts any certificate presented by the server and any host name in that certificate.
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // (자체 서명) SSL 인증서 검증 생략
+	}
+	client := &http.Client{Transport: tr}
+
+	resp, err := client.Get(url)
 	if err != nil {
-		fmt.Printf("Error sending GET request to %s: %v\n", url, err)
+		fmt.Printf("Error sending GET request: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Rx server responded with status code: %d\n", resp.StatusCode)
-		return
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
+	// HTTP 응답의 JSON 데이터를 읽어와 바이트 슬라이스(body)로 저장
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Printf("Error reading response body: %v\n", err)
 		return
 	}
 
-	var data []Data
-	err = json.Unmarshal(body, &data)
+	// HTTP 응답의 body에서 가져온 JSON 데이터를
+	// -> data 구조체 슬라이스로 언마샬링(역직렬화)
+	var data []vData
+	err = json.Unmarshal(body, &data) // &data: data의 포인터, 포인터 전달해 Unmarshal 함수는 data 직접 수정
 	if err != nil {
 		fmt.Printf("Error parsing response JSON: %v\n", err)
 		return
 	}
 
-	fmt.Println("Received data from Rx server:")
+	fmt.Println("GET data from Rx server:")
 	for _, d := range data {
-		fmt.Printf("ID: %d, Name: %s, Address: %s, Sex: %s\n", d.Id, d.Name, d.Address, d.Sex)
+		log.Printf("ID: %d, Name: %s, Address: %s, Sex: %s\n", d.Id, d.Name, d.Address, d.Sex)
 	}
 }

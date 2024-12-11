@@ -8,22 +8,21 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
-	"prototest/pt"
 )
 
-type Data struct {
+type pData struct {
 	Id      int    `json:"id"`
 	Name    string `json:"name"`
 	Address string `json:"address"`
 	Sex     string `json:"sex"`
 }
 
-// n만큼 데이터 생성
-func generateData(n int) []Data {
-	data := make([]Data, n)
+func generateData(n int) []pData {
+	data := make([]pData, n)
 	for i := 1; i <= n; i++ {
-		data[i-1] = Data{
+		data[i-1] = pData{
 			Id:      i,
 			Name:    fmt.Sprintf("Alex%d", i),
 			Address: "123 Main Street",
@@ -33,83 +32,173 @@ func generateData(n int) []Data {
 	return data
 }
 
-// 서버로 요청 보내기
-func sendRequest(method, url string, data Data) error {
+func sendRequest(method, url string, data pData) error {
 	client := &http.Client{}
 
+	// data를 JSON 형식으로 직렬화
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %v", err)
 	}
 
+	// JSON 데이터를 HTTP 요청 본문으로 추가: http.NewRequest는 https 지원
 	req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
+	// 서버에게 요청 본문이 JSON 형식임을 알림
 	req.Header.Set("Content-Type", "application/json")
 
-	// 요청 실행
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
-
 	return nil
 }
 
 func main() {
-	n := flag.Int("n", 1, "Number of data to generate")
-	method := flag.String("m", "POST", "Request Method to Server (POST, PUT, DELETE)")
+	method := flag.String("m", "", "Request Method to Server (POST, PUT, DELETE)")
 	url := flag.String("tx_url", "", "Tx Server URL")
+	// 메서드에 따라서 추가 명령행 인자
+	n := flag.Int("n", 0, "Number of data to generate (for POST)")
+	id := flag.Int("id", 0, "ID of the entry (for PUT/DELETE)")
+	name := flag.String("name", "", "Name to update (for PUT)")
 	flag.Parse()
 
-	// 유효성 검사
-	if *n <= 0 {
-		fmt.Println("Number of data entries (n) must be greater than 0")
-		os.Exit(1)
-	}
-
-	// Tx 서버 url이 설정되지 않은 경우 -> 오류 출력
 	if *url == "" {
 		fmt.Println("Error: Tx server url must be specified.")
 		os.Exit(1)
 	}
 
-	// 데이터 생성 및 전송
-	num := generateData(*n)
-	for _, data := range num {
-		err := sendRequest(*method, *url, data)
-		if err != nil {
-			fmt.Printf("Error sending request for ID %d: %v\n", data.Id, err)
+	switch strings.ToUpper(*method) {
+	case "POST":
+		if *n <= 0 {
+			fmt.Println("Error: Number of data entries must be greater than 0.")
+			os.Exit(1)
 		}
+		dataList := generateData(*n)
+		for _, data := range dataList {
+			err := sendRequest("POST", *url, data)
+			if err != nil {
+				fmt.Printf("Error sending request: %v\n", err)
+			}
+		}
+	case "PUT":
+		if *id <= 0 || *name == "" {
+			fmt.Println("Error: PUT requires id and name.")
+			os.Exit(1)
+		}
+		data := pData{
+			Id:      *id,
+			Name:    *name,
+			Address: "Updated Address",
+			Sex:     "Updated Sex",
+		}
+		err := sendRequest("PUT", *url, data)
+		if err != nil {
+			fmt.Printf("Error sending PUT request: %v\n", err)
+		}
+	case "DELETE":
+		if *id <= 0 {
+			fmt.Println("Error: DELETE requires id.")
+			os.Exit(1)
+		}
+		data := pData{
+			Id: *id,
+		}
+		err := sendRequest("DELETE", *url, data)
+		if err != nil {
+			fmt.Printf("Error sending DELETE request: %v\n", err)
+		}
+	default:
+		fmt.Println("Error: Invalid method. Use POST, PUT, or DELETE.")
+		os.Exit(1)
 	}
 
-	// 사용자 실시간 입력 지원
+	// 명령행 인자로 지정한 작업 진행 후, 메서드 입력하도록
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Println("Enter a method (POST,PUT,DELETE) or type 'exit' to quit:")
+		fmt.Println("Type a method (POST,PUT,DELETE) or 'exit' to quit.")
 		fmt.Print(">> ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
 
+		// ReadString reads until the first occurrence of delim in the input
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Error reading input. Please try again.")
+			continue // for문 처음으로 돌아가 재시작
+		}
+		input = strings.TrimSpace(input)
 		if strings.ToLower(input) == "exit" {
 			fmt.Println("Exiting client...")
-			break
+			break // 루프 종료
 		}
+		// if input != "POST" && input != "PUT" && input != "DELETE" {
+		// 	fmt.Println("Invalid input. Enter POST/PUT/DELETE.")
+		// 	continue
+		// }
 
-		// 유효한 메서드인지 확인
-		if input != "POST" && input != "PUT" && input != "DELETE" {
-			fmt.Println("Invalid method. Please enter POST, PUT, or DELETE.")
-			continue
-		}
-
-		// 요청 데이터 반복 전송
-		for _, data := range num {
-			err := sendRequest(input, *url, data)
-			if err != nil {
-				fmt.Printf("Error sending request for ID %d: %v\n", data.Id, err)
+		if strings.ToUpper(input) == "POST" {
+			fmt.Print("Enter number of data to generate (n): ")
+			nStr, _ := reader.ReadString('\n')
+			nStr = strings.TrimSpace(nStr)
+			n, err := strconv.Atoi(nStr)
+			if err != nil || n <= 0 {
+				fmt.Println("Invalid number.")
+				continue
 			}
+			dataList := generateData(n)
+			for _, data := range dataList {
+				err := sendRequest("POST", *url, data)
+				if err != nil {
+					fmt.Printf("Error sending request: %v\n", err)
+				}
+			}
+		} else if strings.ToUpper(input) == "PUT" {
+			fmt.Print("Enter ID to update: ")
+			idStr, _ := reader.ReadString('\n')
+			idStr = strings.TrimSpace(idStr)
+			id, err := strconv.Atoi(idStr)
+			if err != nil || id <= 0 {
+				fmt.Println("Invalid ID.")
+				continue
+			}
+			fmt.Print("Enter new name: ")
+			name, _ := reader.ReadString('\n')
+			name = strings.TrimSpace(name)
+			if name == "" {
+				fmt.Println("Name cannot be empty.")
+				continue
+			}
+			data := pData{
+				Id:      id,
+				Name:    name,
+				Address: "Updated Address",
+				Sex:     "Updated Sex",
+			}
+			err = sendRequest("PUT", *url, data)
+			if err != nil {
+				fmt.Printf("Error sending PUT request: %v\n", err)
+			}
+		} else if strings.ToUpper(input) == "DELETE" {
+			fmt.Print("Enter ID to delete: ")
+			idStr, _ := reader.ReadString('\n')
+			idStr = strings.TrimSpace(idStr)
+			id, err := strconv.Atoi(idStr)
+			if err != nil || id <= 0 {
+				fmt.Println("Invalid ID.")
+				continue
+			}
+			data := pData{
+				Id: id,
+			}
+			err = sendRequest("DELETE", *url, data)
+			if err != nil {
+				fmt.Printf("Error sending DELETE request for ID %d: %v\n", data.Id, err)
+			}
+		} else {
+			fmt.Println("Error: Invalid method. Use POST, PUT, or DELETE.")
+			os.Exit(1)
 		}
 	}
 }
