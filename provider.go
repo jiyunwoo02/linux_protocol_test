@@ -12,6 +12,11 @@ import (
 	"strings"
 )
 
+const (
+	DefaultAddress = "123 Main Street"
+	DefaultSex     = "Male"
+)
+
 type pData struct {
 	Id      int    `json:"id"`
 	Name    string `json:"name"`
@@ -19,22 +24,22 @@ type pData struct {
 	Sex     string `json:"sex"`
 }
 
+var client = &http.Client{}
+
 func generateData(n int) []pData {
 	data := make([]pData, n)
 	for i := 1; i <= n; i++ {
 		data[i-1] = pData{
 			Id:      i,
 			Name:    fmt.Sprintf("Alex%d", i),
-			Address: "123 Main Street",
-			Sex:     "Male",
+			Address: DefaultAddress,
+			Sex:     DefaultSex,
 		}
 	}
 	return data
 }
 
-func sendRequest(method, url string, data pData) error {
-	client := &http.Client{}
-
+func sendRequest(method, url string, data []pData) error {
 	// data를 JSON 형식으로 직렬화
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -78,11 +83,10 @@ func main() {
 			os.Exit(1)
 		}
 		dataList := generateData(*n)
-		for _, data := range dataList {
-			err := sendRequest("POST", *url, data)
-			if err != nil {
-				fmt.Printf("Error sending request: %v\n", err)
-			}
+		// POST 요청을 한 번에 전체 데이터 배열로 보냄
+		err := sendRequest("POST", *url, dataList)
+		if err != nil {
+			fmt.Printf("Error sending request: %v\n", err)
 		}
 	case "PUT":
 		if *id <= 0 || *name == "" {
@@ -92,10 +96,10 @@ func main() {
 		data := pData{
 			Id:      *id,
 			Name:    *name,
-			Address: "Updated Address",
-			Sex:     "Updated Sex",
+			Address: DefaultAddress,
+			Sex:     DefaultSex,
 		}
-		err := sendRequest("PUT", *url, data)
+		err := sendRequest("PUT", *url, []pData{data})
 		if err != nil {
 			fmt.Printf("Error sending PUT request: %v\n", err)
 		}
@@ -107,9 +111,9 @@ func main() {
 		data := pData{
 			Id: *id,
 		}
-		err := sendRequest("DELETE", *url, data)
+		err := sendRequest("DELETE", *url, []pData{data})
 		if err != nil {
-			fmt.Printf("Error sending DELETE request: %v\n", err)
+			fmt.Printf("Error sending DELETE request for ID %d: %v\n", data.Id, err)
 		}
 	default:
 		fmt.Println("Error: Invalid method. Use POST, PUT, or DELETE.")
@@ -133,10 +137,6 @@ func main() {
 			fmt.Println("Exiting client...")
 			break // 루프 종료
 		}
-		// if input != "POST" && input != "PUT" && input != "DELETE" {
-		// 	fmt.Println("Invalid input. Enter POST/PUT/DELETE.")
-		// 	continue
-		// }
 
 		if strings.ToUpper(input) == "POST" {
 			fmt.Print("Enter number of data to generate (n): ")
@@ -148,11 +148,10 @@ func main() {
 				continue
 			}
 			dataList := generateData(n)
-			for _, data := range dataList {
-				err := sendRequest("POST", *url, data)
-				if err != nil {
-					fmt.Printf("Error sending request: %v\n", err)
-				}
+			// POST 요청을 한 번에 전체 데이터 배열로 보냄
+			err = sendRequest("POST", *url, dataList)
+			if err != nil {
+				fmt.Printf("Error sending request: %v\n", err)
 			}
 		} else if strings.ToUpper(input) == "PUT" {
 			fmt.Print("Enter ID to update: ")
@@ -173,10 +172,10 @@ func main() {
 			data := pData{
 				Id:      id,
 				Name:    name,
-				Address: "Updated Address",
-				Sex:     "Updated Sex",
+				Address: DefaultAddress,
+				Sex:     DefaultSex,
 			}
-			err = sendRequest("PUT", *url, data)
+			err = sendRequest("PUT", *url, []pData{data})
 			if err != nil {
 				fmt.Printf("Error sending PUT request: %v\n", err)
 			}
@@ -192,7 +191,7 @@ func main() {
 			data := pData{
 				Id: id,
 			}
-			err = sendRequest("DELETE", *url, data)
+			err = sendRequest("DELETE", *url, []pData{data})
 			if err != nil {
 				fmt.Printf("Error sending DELETE request for ID %d: %v\n", data.Id, err)
 			}
