@@ -5,11 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"prototest/pt"
 	"sync"
-	// "google.golang.org/protobuf/proto"
+
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -26,7 +29,7 @@ type sData struct {
 }
 
 var TxData []*pt.Data
-var rxData []*pt.Data
+var RxData []*pt.Data
 var rxDataMutex sync.RWMutex
 
 func main() {
@@ -66,12 +69,14 @@ func startTxServer(protocol string) {
 func startRxServer(protocol string) {
 	if protocol == "http" {
 		log.Printf("Starting HTTP Rx server on port %s", httpPort)
+		go startRxTcpServer() // tcp 소켓으로부터 데이터 수신하도록
 		http.HandleFunc("/", handleRxRequest)
 		if err := http.ListenAndServe(":"+httpPort, nil); err != nil {
 			log.Fatalf("Failed to start HTTP Rx server: %v", err)
 		}
 	} else if protocol == "https" {
 		log.Printf("Starting HTTPS Rx server on port %s", httpsPort)
+		go startRxTcpServer()
 		http.HandleFunc("/", handleRxRequest)
 		if err := http.ListenAndServeTLS(":"+httpsPort, "cert.pem", "key.pem", nil); err != nil {
 			log.Fatalf("Failed to start HTTPS Rx server: %v", err)
@@ -99,13 +104,9 @@ func handleTxRequest(w http.ResponseWriter, r *http.Request) {
 
 func handleRxRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		rxDataMutex.RLock()
-		defer rxDataMutex.RUnlock()
-
-		responseData, err := json.Marshal(rxData)
+		responseData, err := json.Marshal(RxData)
 		if err != nil {
 			log.Printf("Failed to marshal Rx data: %v", err)
-			http.Error(w, "Failed to marshal data", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -117,57 +118,154 @@ func handleRxRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func processTxData(r *http.Request, method string) {
-	var dataList []sData
-	if err := json.NewDecoder(r.Body).Decode(&dataList); err != nil {
+	// 여러 개의 데이터를 처리하도록 수정 (슬라이스 적용)
+	var dataList []sData                                              // 클라이언트가 보낸 데이터 목록 -> JSON으로 디코딩된 구조체(sData) 형태
+	if err := json.NewDecoder(r.Body).Decode(&dataList); err != nil { // HTTP 요청의 본문 (r.Body)에서 데이터를 읽어와서 dataList 변수에 파싱
 		log.Printf("Invalid data format: %v", err)
 		return
 	}
 
-	// 데이터를 순차적으로 처리
-	for _, data := range dataList {
-		txProtobuf := &pt.Data{
-			Id:      int32(data.Id),
-			Name:    data.Name,
-			Address: data.Address,
-			Sex:     data.Sex,
-		}
-
-		if method == "POST" {
-			// 중복된 아이디는 갱신, 새로운 아이디는 추가 -> 오류
-			// 클라이언트가 데이터 1개마다 요청을 보내게 하지말고
-			// 여러 개의 데이터를 1번의 요청으로 보내도록!
-			TxData = nil
-			TxData = append(TxData, txProtobuf)
-		}
-
-		if method == "PUT" {
-			for i, data := range TxData {
-				if data.Id == txProtobuf.Id {
-					TxData[i] = txProtobuf
-					break
-				}
+	if method == "POST" {
+		// 받은 데이터를 TxData로 덮어쓰기 (기존 데이터는 모두 삭제)
+		var txList []*pt.Data
+		for _, data := range dataList {
+			// dataList를 순회하며 *pt.Data 타입으로 변환.
+			txProtobuf := &pt.Data{
+				Id:      int32(data.Id),
+				Name:    data.Name,
+				Address: data.Address,
+				Sex:     data.Sex,
 			}
-			log.Printf("Tx - Processed PUT request for ID %d", data.Id)
+			txList = append(txList, txProtobuf)
 		}
-
-		if method == "DELETE" {
-			for i, data := range TxData {
-				if data.Id == txProtobuf.Id {
-					TxData = append(TxData[:i], TxData[i+1:]...)
-					break
-				}
-			}
-			log.Printf("Tx - Processed DELETE request for ID %d", data.Id)
-		}
-		log.Printf("Current TxData: %+v", TxData)
-
-		// 패키지로 만들어서 rx한테 보내자
-		// dataPackage := &pt.DataPackage{
-		// 	DataList:   TxData,
-		// 	TotalCount: int32(len(TxData)),
-		// }
-		// if err := sendToRx(dataPackage); err != nil {
-		// 	log.Printf("Error sending data to Rx server: %v", err)
-		// }
+		TxData = txList // TxData를 새로 받은 데이터로 교체
+		log.Printf("POST request processed for %d.\n", len(dataList))
 	}
+
+	if method == "PUT" {
+		for _, data := range dataList {
+			found := false
+			for i, existingData := range TxData { // i는 현재 항목의 인덱스, existingData는 그 항목의 값
+				if existingData.Id == int32(data.Id) {
+					// 기존 데이터 갱신
+					TxData[i] = &pt.Data{
+						Id:      int32(data.Id),
+						Name:    data.Name,
+						Address: data.Address,
+						Sex:     data.Sex,
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.Printf("PUT request: ID %d not found, skipping update.\n", data.Id)
+			} else {
+				log.Printf("PUT request processed for ID %d.\n", data.Id)
+			}
+		}
+	}
+
+	if method == "DELETE" {
+		for _, data := range dataList {
+			found := false
+			for i, existingData := range TxData {
+				if existingData.Id == int32(data.Id) {
+					// 슬라이스에서 해당 데이터 삭제
+					TxData = append(TxData[:i], TxData[i+1:]...) // 0번째부터 i-1번째, i+1번째부터 마지막까지의 모든 요소 합치기
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.Printf("DELETE request: ID %d not found, skipping deletion.\n", data.Id)
+			} else {
+				log.Printf("DELETE request processed for ID %d.\n", data.Id)
+			}
+		}
+	}
+	log.Printf("Current TxData: %+v\n", TxData)
+
+	// Rx 서버로 데이터 패키지 전송
+	dataPackage := &pt.DataPackage{
+		DataList:   TxData,
+		TotalCount: int32(len(TxData)),
+	}
+	if err := sendToRx(dataPackage); err != nil {
+		log.Printf("Error sending data to Rx server: %v", err)
+	}
+}
+
+func sendToRx(dataPackage *pt.DataPackage) error {
+	// TCP 연결 설정
+	conn, err := net.Dial("tcp", "localhost:"+tcpPort)
+	if err != nil {
+		return fmt.Errorf("failed to connect to Rx server: %w", err)
+	}
+	defer conn.Close()
+
+	// Protocol Buffers 직렬화
+	data, err := proto.Marshal(dataPackage)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data package: %w", err)
+	}
+
+	// 데이터 전송
+	_, err = conn.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to send data to Rx server: %w", err)
+	}
+
+	// log.Printf("Data sent to Rx server: %+v\n", dataPackage)
+	return nil
+}
+
+func startRxTcpServer() {
+	listener, err := net.Listen("tcp", ":"+tcpPort)
+	if err != nil {
+		log.Fatalf("Failed to start Rx TCP server: %v", err)
+	}
+	defer listener.Close()
+
+	log.Printf("Rx TCP server started on port %s\n", tcpPort)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Printf("Failed to accept connection: %v", err)
+			continue
+		}
+		go handleRxConn(conn)
+	}
+}
+
+func handleRxConn(conn net.Conn) {
+	defer conn.Close()
+
+	// 데이터 수신
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil {
+		log.Printf("Error reading from connection: %v", err)
+		return
+	}
+
+	// Protobuf 메시지 디코딩
+	var dataPackage pt.DataPackage
+	if err := proto.Unmarshal(buf[:n], &dataPackage); err != nil {
+		log.Printf("Error unmarshaling protobuf data: %v", err)
+		return
+	}
+
+	// Protobuf 객체를 JSON으로 변환
+	jsonData, err := protojson.Marshal(&dataPackage)
+	if err != nil {
+		log.Printf("Error converting protobuf to JSON: %v", err)
+		return
+	}
+
+	log.Printf("Rx server received data: %s", string(jsonData))
+
+	rxDataMutex.Lock()
+	RxData = dataPackage.DataList
+	rxDataMutex.Unlock()
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -24,9 +25,15 @@ type pData struct {
 	Sex     string `json:"sex"`
 }
 
-var client = &http.Client{}
+// 클라이언트 초기화 시 InsecureSkipVerify 설정 추가
+var client = &http.Client{
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // SSL 인증서 검증 생략
+	},
+}
 
 func generateData(n int) []pData {
+	// []pData: pData 구조체 타입의 슬라이스 (크기 가변적) -> 여러 개의 구조체 담기
 	data := make([]pData, n)
 	for i := 1; i <= n; i++ {
 		data[i-1] = pData{
@@ -39,8 +46,9 @@ func generateData(n int) []pData {
 	return data
 }
 
+// 요청을 보낼 때 -> 데이터 목록 전체를 JSON 배열로 묶어 한 번에 보내도록 수정!
 func sendRequest(method, url string, data []pData) error {
-	// data를 JSON 형식으로 직렬화
+	// 배열을 JSON 형식으로 직렬화
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %v", err)
@@ -108,10 +116,10 @@ func main() {
 			fmt.Println("Error: DELETE requires id.")
 			os.Exit(1)
 		}
-		data := pData{
+		data := pData{ // data는 pData 타입의 단일 구조체
 			Id: *id,
 		}
-		err := sendRequest("DELETE", *url, []pData{data})
+		err := sendRequest("DELETE", *url, []pData{data}) //  []pData{data}: 해당 구조체를 하나의 요소로 가진 슬라이스
 		if err != nil {
 			fmt.Printf("Error sending DELETE request for ID %d: %v\n", data.Id, err)
 		}
