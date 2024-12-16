@@ -19,13 +19,15 @@ const (
 )
 
 type pData struct {
+	// 각 필드가 JSON으로 변환될 때 어떤 키로 매핑되는지 명시
+	// + 만약 JSON 태그를 생략하면, 구조체 필드 이름이 그대로 JSON 키로 사용
 	Id      int    `json:"id"`
 	Name    string `json:"name"`
 	Address string `json:"address"`
 	Sex     string `json:"sex"`
 }
 
-// 클라이언트 초기화 시 InsecureSkipVerify 설정 추가
+// -pro=https인 경우 대비
 var client = &http.Client{
 	Transport: &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // SSL 인증서 검증 생략
@@ -34,6 +36,12 @@ var client = &http.Client{
 
 func generateData(n int) []pData {
 	// []pData: pData 구조체 타입의 슬라이스 (크기 가변적) -> 여러 개의 구조체 담기
+	/* 예시
+	data1 := pData{{Id:1, Name:"Alex1", Address: "123 Main Street", Sex:"Male"}
+	data2 := pData{{Id:2, Name:"Alex2", Address: "123 Main Street", Sex:"Male"}
+	dataList := []pData{data1, data2}
+	fmt.Println(dataList) => [{1 Alex1 123 Main Street Male} {2 Alex2 456 Elm Street Female}]
+	*/
 	data := make([]pData, n)
 	for i := 1; i <= n; i++ {
 		data[i-1] = pData{
@@ -49,6 +57,23 @@ func generateData(n int) []pData {
 // 요청을 보낼 때 -> 데이터 목록 전체를 JSON 배열로 묶어 한 번에 보내도록 수정!
 func sendRequest(method, url string, data []pData) error {
 	// 배열을 JSON 형식으로 직렬화
+	// -> 구조체의 필드에 설정된 JSON 태그(json:"key")를 기반으로 JSON 키와 값을 매칭
+	/*
+			[
+		  	  {
+			    "id": 1,
+			    "name": "Alex1",
+			    "address": "123 Main Street",
+			    "sex": "Male"
+			  },
+			  {
+			    "id": 2,
+			    "name": "Alex2",
+			    "address": "456 Elm Street",
+			    "sex": "Female"
+			  }
+			]
+	*/
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data: %v", err)
@@ -59,7 +84,7 @@ func sendRequest(method, url string, data []pData) error {
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
-	// 서버에게 요청 본문이 JSON 형식임을 알림
+	//💡서버에게 요청 본문이 JSON 형식임을 알림 (필수 X)(명확성 -> 서버와의 원활한 의사소통, 에러 발생 가능성 감소)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -151,6 +176,7 @@ func main() {
 			nStr, _ := reader.ReadString('\n')
 			nStr = strings.TrimSpace(nStr)
 			n, err := strconv.Atoi(nStr)
+			// 숫자 사이에 공백이 들어가면? -> 숫자 사이에 공백이 들어간 하나의 문자열로 처리, 유효한 숫자 형식이 아니어서 에러 반환
 			if err != nil || n <= 0 {
 				fmt.Println("Invalid number.")
 				continue

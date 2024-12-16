@@ -9,7 +9,8 @@ import (
 	"net/http"
 	"os"
 	"prototest/pt"
-	"sync"
+
+	//"sync"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -30,10 +31,11 @@ type sData struct {
 
 var TxData []*pt.Data
 var RxData []*pt.Data
-var rxDataMutex sync.RWMutex
+
+// var rxDataMutex sync.RWMutex
 
 func main() {
-	mode := flag.String("mode", "tx", "tx or rx")
+	mode := flag.String("mode", "tx", "tx(transport) or rx(receive)")
 	protocol := flag.String("pro", "http", "http or https")
 	flag.Parse()
 
@@ -50,8 +52,8 @@ func main() {
 func startTxServer(protocol string) {
 	if protocol == "http" {
 		log.Printf("Starting HTTP Tx server on port %s", httpPort)
-		http.HandleFunc("/", handleTxRequest)
-		if err := http.ListenAndServe(":"+httpPort, nil); err != nil {
+		http.HandleFunc("/", handleTxRequest)                          // 요청 처리 함수 설정
+		if err := http.ListenAndServe(":"+httpPort, nil); err != nil { // HTTP 서버 실행
 			log.Fatalf("Failed to start HTTP Tx server: %v", err)
 		}
 	} else if protocol == "https" {
@@ -107,7 +109,7 @@ func handleRxRequest(w http.ResponseWriter, r *http.Request) {
 		responseData, err := json.Marshal(RxData)
 		if err != nil {
 			log.Printf("Failed to marshal Rx data: %v", err)
-			return
+			return // 에러가 발생하면 함수 종료
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(responseData)
@@ -129,7 +131,7 @@ func processTxData(r *http.Request, method string) {
 		// 받은 데이터를 TxData로 덮어쓰기 (기존 데이터는 모두 삭제)
 		var txList []*pt.Data
 		for _, data := range dataList {
-			// dataList를 순회하며 *pt.Data 타입으로 변환.
+			// dataList를 순회하며 각 구조체 요소를 *pt.Data 프로토버프 형삭으로 변환.
 			txProtobuf := &pt.Data{
 				Id:      int32(data.Id),
 				Name:    data.Name,
@@ -139,7 +141,7 @@ func processTxData(r *http.Request, method string) {
 			txList = append(txList, txProtobuf)
 		}
 		TxData = txList // TxData를 새로 받은 데이터로 교체
-		log.Printf("POST request processed for %d.\n", len(dataList))
+		log.Printf("POST request processed for %d data.\n", len(dataList))
 	}
 
 	if method == "PUT" {
@@ -147,7 +149,7 @@ func processTxData(r *http.Request, method string) {
 			found := false
 			for i, existingData := range TxData { // i는 현재 항목의 인덱스, existingData는 그 항목의 값
 				if existingData.Id == int32(data.Id) {
-					// 기존 데이터 갱신
+					// 기존 Tx 데이터 갱신
 					TxData[i] = &pt.Data{
 						Id:      int32(data.Id),
 						Name:    data.Name,
@@ -191,7 +193,8 @@ func processTxData(r *http.Request, method string) {
 		DataList:   TxData,
 		TotalCount: int32(len(TxData)),
 	}
-	if err := sendToRx(dataPackage); err != nil {
+	err := sendToRx(dataPackage)
+	if err != nil {
 		log.Printf("Error sending data to Rx server: %v", err)
 	}
 }
@@ -204,7 +207,9 @@ func sendToRx(dataPackage *pt.DataPackage) error {
 	}
 	defer conn.Close()
 
-	// Protocol Buffers 직렬화
+	// Protocol Buffers 직렬화: Protobuf 객체를 바이트 배열로 변환
+	// -> data 변수에는 Protobuf 포맷으로 인코딩된 데이터가 담김
+	// -- 네트워크를 통해 데이터를 전송하려면 데이터를 바이트 스트림 형식으로 변환!
 	data, err := proto.Marshal(dataPackage)
 	if err != nil {
 		return fmt.Errorf("failed to marshal data package: %w", err)
@@ -234,7 +239,7 @@ func startRxTcpServer() {
 			log.Printf("Failed to accept connection: %v", err)
 			continue
 		}
-		go handleRxConn(conn)
+		go handleRxConn(conn) // 각 클라이언트와의 연결을 병렬로 처리
 	}
 }
 
@@ -249,11 +254,21 @@ func handleRxConn(conn net.Conn) {
 		return
 	}
 
-	// Protobuf 메시지 디코딩
+	// Protobuf 메시지 디코딩: 네트워크를 통해 수신한 바이트 데이터를 Protobuf 객체로 디코딩
 	var dataPackage pt.DataPackage
 	if err := proto.Unmarshal(buf[:n], &dataPackage); err != nil {
 		log.Printf("Error unmarshaling protobuf data: %v", err)
 		return
+	}
+
+	// TotalCount vs 수신 데이터의 개수
+	if int(dataPackage.TotalCount) == len(dataPackage.DataList) {
+		// 개수 일치 -> Tx에서 송신한 데이터를 Rx에 반영
+		log.Printf("Data count matches, updating RxData with received data.")
+		RxData = dataPackage.DataList
+	} else {
+		// 개수 불일치 -> 기존 RxData 유지
+		log.Printf("Data count mismatch, keeping current RxData.")
 	}
 
 	// Protobuf 객체를 JSON으로 변환
@@ -265,7 +280,8 @@ func handleRxConn(conn net.Conn) {
 
 	log.Printf("Rx server received data: %s", string(jsonData))
 
-	rxDataMutex.Lock()
-	RxData = dataPackage.DataList
-	rxDataMutex.Unlock()
+	//rxDataMutex.Lock()
+	//rxDataMutex.Unlock()
 }
+
+// 서버가 종료될 때 모든 고루틴이 종료될 때까지 기다려야 하는 경우 -> 웨이트그룹 사용
