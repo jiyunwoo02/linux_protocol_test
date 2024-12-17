@@ -37,8 +37,8 @@ var client = &http.Client{
 func generateData(n int) []pData {
 	// []pData: pData 구조체 타입의 슬라이스 (크기 가변적) -> 여러 개의 구조체 담기
 	/* 예시
-	data1 := pData{{Id:1, Name:"Alex1", Address: "123 Main Street", Sex:"Male"}
-	data2 := pData{{Id:2, Name:"Alex2", Address: "123 Main Street", Sex:"Male"}
+	data1 := pData{Id:1, Name:"Alex1", Address: "123 Main Street", Sex:"Male"}
+	data2 := pData{Id:2, Name:"Alex2", Address: "123 Main Street", Sex:"Male"}
 	dataList := []pData{data1, data2}
 	fmt.Println(dataList) => [{1 Alex1 123 Main Street Male} {2 Alex2 456 Elm Street Female}]
 	*/

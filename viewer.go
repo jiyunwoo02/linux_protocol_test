@@ -20,11 +20,11 @@ type vData struct {
 }
 
 func main() {
-	url := flag.String("rx_url", "", "Rx Server URL")
+	url := flag.String("sv_url", "", "Server URL (tx/rx)")
 	flag.Parse()
 
 	if *url == "" {
-		fmt.Println("Error: Rx server url must be specified.")
+		fmt.Println("Error: Server url must be specified.")
 		os.Exit(1)
 	}
 
@@ -66,7 +66,7 @@ func sendGetRequest(url string) {
 		return
 	}
 
-	fmt.Println("GET data from Rx:")
+	fmt.Println("GET data from Server:")
 	for _, d := range data {
 		log.Printf("ID: %d, Name: %s, Address: %s, Sex: %s\n", d.Id, d.Name, d.Address, d.Sex)
 	}
