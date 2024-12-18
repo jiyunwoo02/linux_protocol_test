@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -224,7 +225,17 @@ func sendToRx(dataPackage *pt.DataPackage) error {
 		return fmt.Errorf("failed to marshal data package: %w", err)
 	}
 
+	// 데이터 전송 전, 데이터 길이 정보 전송 -> 수신 측 socket buffer size 고려
+	// 엔디안 사용 -> 서로 다른 시스템 간 데이터 전송에서 바이트 순서를 맞추기 위함
+	length := int32(len(data))                            // int32는 4바이트(32비트) 크기 가짐
+	lengthBuf := make([]byte, 4)                          // 4바이트 버퍼 생성
+	binary.BigEndian.PutUint32(lengthBuf, uint32(length)) // Big Endian 방식으로 버퍼에 길이를 기록 (엔디안: 컴퓨터가 메모리에 데이터를 읽고 쓰는 방향을 정의)
+	if _, err := conn.Write(lengthBuf); err != nil {
+		return fmt.Errorf("failed to send data length to Rx server: %w", err)
+	}
+
 	// 데이터 전송
+	// -> 두 번의 write가 하나의 연속적인 데이터 스트림을 형성
 	bytesSent, err := conn.Write(data)
 	if err != nil {
 		return fmt.Errorf("failed to send data to Rx server: %w", err)
@@ -268,19 +279,34 @@ func startRxTcpServer() {
 func handleRxConn(conn net.Conn) {
 	defer conn.Close()
 
-	// 데이터 수신
-	buf := make([]byte, 4096*1000) // 바이트 수를 늘려보자
-	n, err := conn.Read(buf)
-	if err != nil {
-		log.Printf("Error reading from connection: %v", err)
+	// 데이터 길이 수신
+	// -> 4바이트로 설정하지 않으면 Error reading from connection: EOF
+	// : 실제로 길이 정보는 4바이트밖에 전송되지 않으므로, 나머지 6바이트에 대해 데이터를 찾을 수 없어 EOF 오류가 발생
+	lengthBuf := make([]byte, 4)
+	if _, err := conn.Read(lengthBuf); err != nil {
+		log.Printf("Error reading data length from connection: %v", err)
 		return
 	}
-	// 수신된 데이터 바이트 수 출력 -> tx가 보낸 바이트 수와 상이한 경우 발생 -> tcp segment..
-	log.Printf("Rx server received %d bytes from Tx server.\n", n)
+	dataLength := binary.BigEndian.Uint32(lengthBuf)
+
+	// 데이터 수신
+	buf := make([]byte, dataLength)
+	totalRead := 0
+	for totalRead < int(dataLength) {
+		n, err := conn.Read(buf[totalRead:])
+		if err != nil {
+			log.Printf("Error reading from connection: %v", err)
+			return
+		}
+		totalRead += n
+	}
+
+	// 수신된 데이터 바이트 수 출력
+	log.Printf("Rx server received %d bytes from Tx server.\n", totalRead)
 
 	// Protobuf 메시지 디코딩: 네트워크를 통해 수신한 바이트 데이터를 Protobuf 객체로 디코딩
 	var dataPackage pt.DataPackage
-	if err := proto.Unmarshal(buf[:n], &dataPackage); err != nil {
+	if err := proto.Unmarshal(buf, &dataPackage); err != nil {
 		log.Printf("Error unmarshaling protobuf data: %v", err)
 		return
 	}
