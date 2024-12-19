@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -115,9 +116,13 @@ func main() {
 			fmt.Println("Error: Number of data entries must be greater than 0.")
 			os.Exit(1)
 		}
+		// 소요 시간 측정
+		start := time.Now()
 		dataList := generateData(*n)
 		// POST 요청을 한 번에 전체 데이터 배열로 보냄
 		err := sendRequest("POST", *url, dataList)
+		end := time.Since(start)
+		fmt.Printf("-- Provider: Time elapsed for POST request: %d ms.\n", end.Milliseconds())
 		if err != nil {
 			fmt.Printf("Error sending request: %v\n", err)
 		}
@@ -126,6 +131,7 @@ func main() {
 			fmt.Println("Error: PUT requires id and name.")
 			os.Exit(1)
 		}
+		start := time.Now()
 		data := pData{
 			Id:      *id,
 			Name:    *name,
@@ -133,6 +139,8 @@ func main() {
 			Sex:     DefaultSex,
 		}
 		err := sendRequest("PUT", *url, []pData{data})
+		end := time.Since(start)
+		fmt.Printf("-- Provider: Time elapsed for PUT request: %d ms.\n", end.Milliseconds())
 		if err != nil {
 			fmt.Printf("Error sending PUT request: %v\n", err)
 		}
@@ -141,10 +149,13 @@ func main() {
 			fmt.Println("Error: DELETE requires id.")
 			os.Exit(1)
 		}
+		start := time.Now()
 		data := pData{ // data는 pData 타입의 단일 구조체
 			Id: *id,
 		}
 		err := sendRequest("DELETE", *url, []pData{data}) //  []pData{data}: 해당 구조체를 하나의 요소로 가진 슬라이스
+		end := time.Since(start)
+		fmt.Printf("-- Provider: Time elapsed for DELETE request: %d ms.\n", end.Milliseconds())
 		if err != nil {
 			fmt.Printf("Error sending DELETE request for ID %d: %v\n", data.Id, err)
 		}
@@ -181,9 +192,12 @@ func main() {
 				fmt.Println("Invalid number.")
 				continue
 			}
+			start := time.Now()
 			dataList := generateData(n)
 			// POST 요청을 한 번에 전체 데이터 배열로 보냄
 			err = sendRequest("POST", *url, dataList)
+			end := time.Since(start)
+			fmt.Printf("-- Provider: Time elapsed for POST request: %d ms.\n", end.Milliseconds())
 			if err != nil {
 				fmt.Printf("Error sending request: %v\n", err)
 			}
@@ -203,6 +217,7 @@ func main() {
 				fmt.Println("Name cannot be empty.")
 				continue
 			}
+			start := time.Now()
 			data := pData{
 				Id:      id,
 				Name:    name,
@@ -210,6 +225,8 @@ func main() {
 				Sex:     DefaultSex,
 			}
 			err = sendRequest("PUT", *url, []pData{data})
+			end := time.Since(start)
+			fmt.Printf("-- Provider: Time elapsed for PUT request: %d ms.\n", end.Milliseconds())
 			if err != nil {
 				fmt.Printf("Error sending PUT request: %v\n", err)
 			}
@@ -222,10 +239,13 @@ func main() {
 				fmt.Println("Invalid ID.")
 				continue
 			}
+			start := time.Now()
 			data := pData{
 				Id: id,
 			}
 			err = sendRequest("DELETE", *url, []pData{data})
+			end := time.Since(start)
+			fmt.Printf("-- Provider: Time elapsed for DELETE request: %d ms.\n", end.Milliseconds())
 			if err != nil {
 				fmt.Printf("Error sending DELETE request for ID %d: %v\n", data.Id, err)
 			}

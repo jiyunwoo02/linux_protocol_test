@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"prototest/pt"
+	"time"
 
 	//"sync"
 
@@ -92,6 +93,7 @@ func startRxServer(protocol string) {
 
 func handleTxRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		start := time.Now()
 		responseData, err := json.Marshal(TxData)
 		if err != nil {
 			log.Printf("Failed to marshal Tx data: %v", err)
@@ -99,16 +101,18 @@ func handleTxRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(responseData)
-		log.Println("Tx - Processed GET request")
+		end := time.Since(start)
+		//log.Println("Tx - Processed GET request")
+		fmt.Printf("-- Tx_Time elapsed for GET request: %d ms.\n", end.Milliseconds())
 	} else if r.Method == http.MethodPost {
-		log.Println("Tx - Processing POST request")
 		processTxData(r, "POST")
+		//log.Println("Tx - Processed POST request")
 	} else if r.Method == http.MethodPut {
-		log.Println("Tx - Processing PUT request")
 		processTxData(r, "PUT")
+		//log.Println("Tx - Processed PUT request")
 	} else if r.Method == http.MethodDelete {
-		log.Println("Tx - Processing DELETE request")
 		processTxData(r, "DELETE")
+		//log.Println("Tx - Processed DELETE request")
 	} else {
 		log.Println("Method not allowed")
 	}
@@ -116,6 +120,7 @@ func handleTxRequest(w http.ResponseWriter, r *http.Request) {
 
 func handleRxRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		start := time.Now()
 		responseData, err := json.Marshal(RxData)
 		if err != nil {
 			log.Printf("Failed to marshal Rx data: %v", err)
@@ -123,7 +128,9 @@ func handleRxRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(responseData)
+		end := time.Since(start)
 		log.Println("Rx - Processed GET request")
+		fmt.Printf("-- Rx_Time elapsed for GET request: %d ms.\n", end.Milliseconds())
 	} else {
 		log.Println("Method not allowed")
 	}
@@ -138,6 +145,7 @@ func processTxData(r *http.Request, method string) {
 	}
 
 	if method == "POST" {
+		start := time.Now()
 		// 받은 데이터를 TxData로 덮어쓰기 (기존 데이터는 모두 삭제)
 		var txList []*pt.Data
 		for _, data := range dataList {
@@ -151,10 +159,13 @@ func processTxData(r *http.Request, method string) {
 			txList = append(txList, txProtobuf)
 		}
 		TxData = txList // TxData를 새로 받은 데이터로 교체
+		end := time.Since(start)
 		log.Printf("POST request processed for %d data.\n", len(dataList))
+		fmt.Printf("-- Tx_Time elapsed for POST request: %d ms.\n", end.Milliseconds())
 	}
 
 	if method == "PUT" {
+		start := time.Now()
 		for _, data := range dataList {
 			found := false
 			for i, existingData := range TxData { // i는 현재 항목의 인덱스, existingData는 그 항목의 값
@@ -170,15 +181,18 @@ func processTxData(r *http.Request, method string) {
 					break
 				}
 			}
+			end := time.Since(start)
 			if !found {
 				log.Printf("PUT request: ID %d not found, skipping update.\n", data.Id)
 			} else {
 				log.Printf("PUT request processed for ID %d.\n", data.Id)
+				fmt.Printf("-- Tx_Time elapsed for POST request: %d ms.\n", end.Milliseconds())
 			}
 		}
 	}
 
 	if method == "DELETE" {
+		start := time.Now()
 		for _, data := range dataList {
 			found := false
 			for i, existingData := range TxData {
@@ -189,10 +203,12 @@ func processTxData(r *http.Request, method string) {
 					break
 				}
 			}
+			end := time.Since(start)
 			if !found {
 				log.Printf("DELETE request: ID %d not found, skipping deletion.\n", data.Id)
 			} else {
 				log.Printf("DELETE request processed for ID %d.\n", data.Id)
+				fmt.Printf("-- Tx_Time elapsed for POST request: %d ms.\n", end.Milliseconds())
 			}
 		}
 	}
@@ -225,7 +241,7 @@ func sendToRx(dataPackage *pt.DataPackage) error {
 		return fmt.Errorf("failed to marshal data package: %w", err)
 	}
 
-	// 데이터 전송 전, 데이터 길이 정보 전송 -> 수신 측 socket buffer size 고려
+	// 데이터 전송 전, "전송하려는 데이터(data)의 전체 길이" 정보 전송 -> 수신 측 socket buffer size 고려
 	// 엔디안 사용 -> 서로 다른 시스템 간 데이터 전송에서 바이트 순서를 맞추기 위함
 	length := int32(len(data))                            // int32는 4바이트(32비트) 크기 가짐
 	lengthBuf := make([]byte, 4)                          // 4바이트 버퍼 생성
@@ -234,15 +250,22 @@ func sendToRx(dataPackage *pt.DataPackage) error {
 		return fmt.Errorf("failed to send data length to Rx server: %w", err)
 	}
 
-	// 데이터 전송
+	// log.Printf("Tx server sent %d bytes to Rx server. (protobuf) \n", length)
+
+	// 데이터 전송: conn.Write(data)가 항상 전체 데이터를 한 번에 전송한다고 보장할 수 없다
+	// 네트워크가 안정적이라면 length와 bytesSent 동일, 불안정하거나 버퍼 크기 작다면 상이
 	// -> 두 번의 write가 하나의 연속적인 데이터 스트림을 형성
+	start := time.Now()
 	bytesSent, err := conn.Write(data)
 	if err != nil {
 		return fmt.Errorf("failed to send data to Rx server: %w", err)
 	}
+	end := time.Since(start)
 
-	// 송신된 데이터 바이트 수 출력
-	log.Printf("Tx server sent %d bytes to Rx server.\n", bytesSent)
+	// "실제로 전송된 데이터의 크기" 출력
+	log.Printf("Tx server sent %d bytes to Rx server. (protobuf) \n", bytesSent)
+	// 소요 시간 출력
+	fmt.Printf("-- Tx_Time elapsed for Socket Sending: %d ms.\n", end.Milliseconds())
 	return nil
 
 	// log.Printf("Data sent to Rx server: %+v\n", dataPackage)
@@ -277,32 +300,33 @@ func startRxTcpServer() {
 }
 
 func handleRxConn(conn net.Conn) {
+	start := time.Now()
 	defer conn.Close()
 
 	// 데이터 길이 수신
 	// -> 4바이트로 설정하지 않으면 Error reading from connection: EOF
-	// : 실제로 길이 정보는 4바이트밖에 전송되지 않으므로, 나머지 6바이트에 대해 데이터를 찾을 수 없어 EOF 오류가 발생
+	// make([]byte, 10): 실제로 길이 정보는 4바이트밖에 전송되지 않으므로, 나머지 6바이트에 대해 데이터를 찾을 수 없어 EOF 오류가 발생
 	lengthBuf := make([]byte, 4)
 	if _, err := conn.Read(lengthBuf); err != nil {
 		log.Printf("Error reading data length from connection: %v", err)
 		return
 	}
 	dataLength := binary.BigEndian.Uint32(lengthBuf)
+	// log.Printf("Rx server received %d bytes from Tx server. (protobuf) \n", dataLength)
 
 	// 데이터 수신
 	buf := make([]byte, dataLength)
 	totalRead := 0
 	for totalRead < int(dataLength) {
-		n, err := conn.Read(buf[totalRead:])
+		n, err := conn.Read(buf[totalRead:]) // 반복적으로 Read할 수 있도록
 		if err != nil {
 			log.Printf("Error reading from connection: %v", err)
 			return
 		}
-		totalRead += n
+		totalRead += n // 읽은 바이트 수를 기록
 	}
-
-	// 수신된 데이터 바이트 수 출력
-	log.Printf("Rx server received %d bytes from Tx server.\n", totalRead)
+	end := time.Since(start)
+	fmt.Printf("-- Rx_Time elapsed for Socket Receiving: %d ms.\n", end.Milliseconds())
 
 	// Protobuf 메시지 디코딩: 네트워크를 통해 수신한 바이트 데이터를 Protobuf 객체로 디코딩
 	var dataPackage pt.DataPackage
@@ -328,6 +352,8 @@ func handleRxConn(conn net.Conn) {
 		return
 	}
 
+	// 수신된 데이터 바이트 수 출력
+	log.Printf("Rx server received %d bytes from Tx server. (protobuf) \n", totalRead)
 	log.Printf("Rx server received data: %s", string(jsonData))
 
 	//rxDataMutex.Lock()
