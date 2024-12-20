@@ -129,7 +129,7 @@ func handleRxRequest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(responseData)
 		end := time.Since(start)
-		log.Println("Rx - Processed GET request")
+		//log.Println("Rx - Processed GET request")
 		fmt.Printf("-- Rx_Time elapsed for GET request: %d ms.\n", end.Milliseconds())
 	} else {
 		log.Println("Method not allowed")
@@ -161,7 +161,8 @@ func processTxData(r *http.Request, method string) {
 		TxData = txList // TxData를 새로 받은 데이터로 교체
 		end := time.Since(start)
 		log.Printf("POST request processed for %d data.\n", len(dataList))
-		fmt.Printf("-- Tx_Time elapsed for POST request: %d ms.\n", end.Milliseconds())
+		log.Printf("Current TxData: %+v\n", TxData)                                     // TxData 출력
+		fmt.Printf("-- Tx_Time elapsed for POST request: %d ms.\n", end.Milliseconds()) // 소요 시간 출력
 	}
 
 	if method == "PUT" {
@@ -181,14 +182,15 @@ func processTxData(r *http.Request, method string) {
 					break
 				}
 			}
-			end := time.Since(start)
 			if !found {
 				log.Printf("PUT request: ID %d not found, skipping update.\n", data.Id)
 			} else {
 				log.Printf("PUT request processed for ID %d.\n", data.Id)
-				fmt.Printf("-- Tx_Time elapsed for POST request: %d ms.\n", end.Milliseconds())
 			}
 		}
+		end := time.Since(start)
+		log.Printf("Current TxData: %+v\n", TxData)                                    // TxData 출력
+		fmt.Printf("-- Tx_Time elapsed for PUT request: %d ms.\n", end.Milliseconds()) // 소요 시간 출력
 	}
 
 	if method == "DELETE" {
@@ -203,16 +205,16 @@ func processTxData(r *http.Request, method string) {
 					break
 				}
 			}
-			end := time.Since(start)
 			if !found {
 				log.Printf("DELETE request: ID %d not found, skipping deletion.\n", data.Id)
 			} else {
 				log.Printf("DELETE request processed for ID %d.\n", data.Id)
-				fmt.Printf("-- Tx_Time elapsed for POST request: %d ms.\n", end.Milliseconds())
 			}
 		}
+		end := time.Since(start)
+		log.Printf("Current TxData: %+v\n", TxData)                                       // TxData 출력
+		fmt.Printf("-- Tx_Time elapsed for DELETE request: %d ms.\n", end.Milliseconds()) // 소요 시간 출력
 	}
-	log.Printf("Current TxData: %+v\n", TxData)
 
 	// Rx 서버로 데이터 패키지 전송
 	dataPackage := &pt.DataPackage{
@@ -300,7 +302,6 @@ func startRxTcpServer() {
 }
 
 func handleRxConn(conn net.Conn) {
-	start := time.Now()
 	defer conn.Close()
 
 	// 데이터 길이 수신
@@ -317,6 +318,7 @@ func handleRxConn(conn net.Conn) {
 	// 데이터 수신
 	buf := make([]byte, dataLength)
 	totalRead := 0
+	start := time.Now()
 	for totalRead < int(dataLength) {
 		n, err := conn.Read(buf[totalRead:]) // 반복적으로 Read할 수 있도록
 		if err != nil {
@@ -326,7 +328,6 @@ func handleRxConn(conn net.Conn) {
 		totalRead += n // 읽은 바이트 수를 기록
 	}
 	end := time.Since(start)
-	fmt.Printf("-- Rx_Time elapsed for Socket Receiving: %d ms.\n", end.Milliseconds())
 
 	// Protobuf 메시지 디코딩: 네트워크를 통해 수신한 바이트 데이터를 Protobuf 객체로 디코딩
 	var dataPackage pt.DataPackage
@@ -354,7 +355,8 @@ func handleRxConn(conn net.Conn) {
 
 	// 수신된 데이터 바이트 수 출력
 	log.Printf("Rx server received %d bytes from Tx server. (protobuf) \n", totalRead)
-	log.Printf("Rx server received data: %s", string(jsonData))
+	log.Printf("Rx server received data: %s\n", string(jsonData))
+	fmt.Printf("-- Rx_Time elapsed for Socket Receiving: %d ms.\n", end.Milliseconds())
 
 	//rxDataMutex.Lock()
 	//rxDataMutex.Unlock()

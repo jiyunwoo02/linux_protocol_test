@@ -53,8 +53,6 @@ func sendGetRequest(url string) {
 	defer resp.Body.Close()
 	// 측정을 끝내는 시간
 	end := time.Since(start)
-	// 소요 시간 출력
-	fmt.Printf("-- Viewer: Time elapsed for GET request: %d ms.\n", end.Milliseconds())
 
 	// HTTP 응답의 JSON 데이터를 읽어와 바이트 슬라이스(body)로 저장
 	body, err := io.ReadAll(resp.Body)
@@ -80,5 +78,7 @@ func sendGetRequest(url string) {
 	}
 
 	// JSON 데이터를 변환한 후, 구조체 슬라이스 내 요소 개수
-	log.Printf("Number of records: %d (len(data))\n", len(data))
+	log.Printf("Number of records: %d\n", len(data))
+	// 소요 시간 출력
+	fmt.Printf("-- Viewer: Time elapsed for GET request: %d ms.\n", end.Milliseconds())
 }
