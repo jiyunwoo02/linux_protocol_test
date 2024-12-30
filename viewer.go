@@ -74,7 +74,8 @@ func sendGetRequest(url string) {
 
 	fmt.Println("GET data from Server:")
 	for _, d := range data {
-		log.Printf("ID: %d, Name: %s, Address: %s, Sex: %s\n", d.Id, d.Name, d.Address, d.Sex)
+		log.Printf("ID: %d, Name: %s, Address: %s, Sex: %s\n",
+		 d.Id, d.Name, d.Address, d.Sex)
 	}
 
 	// JSON 데이터를 변환한 후, 구조체 슬라이스 내 요소 개수
